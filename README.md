@@ -71,7 +71,17 @@ source .venv/bin/activate
 > Note: chain commands with `&&` only in bash/zsh. Windows PowerShell 5.1 (the
 > Windows 10 default) does not support `&&`, so run each command on its own line.
 
-### 2. Install the package
+### 2. Upgrade pip (required)
+
+Editable installs of this project need **pip ≥ 21.3** (PEP 660). The pip bundled
+with older Python releases (e.g. 20.x) fails with *"File setup.py not found …
+editable mode currently requires a setup.py based build"*. Upgrade first:
+
+```powershell
+python -m pip install --upgrade pip setuptools wheel
+```
+
+### 3. Install the package
 
 The quoting around the extras differs by shell. Pick the line for yours:
 
