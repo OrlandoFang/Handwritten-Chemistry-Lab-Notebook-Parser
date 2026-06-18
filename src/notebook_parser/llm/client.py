@@ -86,23 +86,51 @@ class OpenAIEngine:
             {"role": "system", "content": system},
             {"role": "user", "content": content},
         ]
-        try:
-            completion = client.chat.completions.parse(
-                model=self.config.model,
-                messages=messages,
-                response_format=schema,
-                temperature=self.config.temperature,
-                seed=self.config.seed,
-            )
-        except Exception as exc:
-            raise LLMError(f"model call failed: {exc}") from exc
+        params: dict = {
+            "model": self.config.model,
+            "messages": messages,
+            "response_format": schema,
+        }
+        # Only send optional sampling params when configured; some newer models
+        # reject non-default temperature/seed entirely.
+        if self.config.temperature is not None:
+            params["temperature"] = self.config.temperature
+        if self.config.seed is not None:
+            params["seed"] = self.config.seed
 
+        completion = self._parse_with_fallback(client, params)
         message = completion.choices[0].message
         if getattr(message, "refusal", None):
             raise LLMError(f"model refused: {message.refusal}")
         if message.parsed is None:
             raise LLMError("model returned no parsable structured output")
         return message.parsed
+
+    @staticmethod
+    def _parse_with_fallback(client, params: dict):
+        """Call ``chat.completions.parse``, dropping params the model rejects.
+
+        Some models reject optional sampling params (e.g. a custom ``temperature``
+        or ``seed``). On such an error we remove the offending parameter(s) named
+        in the error message and retry once, so newer models work out of the box
+        without sacrificing determinism on models that do support seeding.
+        """
+        try:
+            return client.chat.completions.parse(**params)
+        except Exception as exc:
+            message = str(exc).lower()
+            dropped = [
+                p for p in ("temperature", "seed")
+                if p in params and p in message
+            ]
+            if not dropped:
+                raise LLMError(f"model call failed: {exc}") from exc
+            for p in dropped:
+                params.pop(p, None)
+            try:
+                return client.chat.completions.parse(**params)
+            except Exception as exc2:
+                raise LLMError(f"model call failed: {exc2}") from exc2
 
 
 class StubEngine:

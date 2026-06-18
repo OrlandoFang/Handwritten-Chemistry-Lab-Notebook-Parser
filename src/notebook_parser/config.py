@@ -32,10 +32,13 @@ class LLMConfig(BaseModel):
     serialized config.
     """
 
-    model: str = Field(default_factory=lambda: os.environ.get("OPENAI_MODEL", "gpt-4o"))
-    # temperature 0 + a fixed seed give best-effort determinism (§10).
-    temperature: float = Field(default=0.0, ge=0.0, le=2.0)
-    seed: int = 7
+    model: str = Field(default_factory=lambda: os.environ.get("OPENAI_MODEL", "gpt-5.5"))
+    # Newer GPT-5 family models only accept their default temperature, so we omit
+    # temperature by default (None) and rely on a fixed seed for best-effort
+    # determinism (§10). Set a value for older models (e.g. gpt-4o) that support it.
+    # The engine also drops any parameter a given model rejects.
+    temperature: Optional[float] = Field(default=None, ge=0.0, le=2.0)
+    seed: Optional[int] = 7
     max_retries: int = Field(default=4, ge=0)
     timeout_s: float = Field(default=120.0, gt=0.0)
     # Max alternative readings the transcription pass may return per line.
