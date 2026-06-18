@@ -12,6 +12,7 @@ The public surface is intentionally small: construct/configure a
 from .config import PipelineConfig
 from .llm.client import LLMEngine, OpenAIEngine, StubEngine
 from .pipeline import NotebookPipeline
+from .report import render_markdown, render_markdown_from_dict
 from .types import ParseResult
 
 __all__ = [
@@ -21,7 +22,9 @@ __all__ = [
     "LLMEngine",
     "OpenAIEngine",
     "StubEngine",
+    "render_markdown",
+    "render_markdown_from_dict",
     "__version__",
 ]
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"

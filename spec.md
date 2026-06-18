@@ -85,6 +85,10 @@ Staged, multi-pass pipeline:
    pixels), to minimize hallucination.
 5. **Assembly + validation** — merge passes into the canonical schema, compute
    confidence, and validate.
+6. **Reporting (optional)** — render the validated result as a human-readable
+   Markdown report (`result.md`) with the transcription, an explained chemistry
+   section, and the experiment narrative. The JSON remains the source of truth;
+   the report only reformats data already present in it.
 
 Each pass is independent and swappable. Every pass is constrained by a Pydantic
 schema via OpenAI Structured Outputs.
@@ -169,6 +173,7 @@ project/
     config.py            # pipeline + LLM configuration
     types.py             # canonical Pydantic output schema
     imaging.py           # load / deskew / resize / base64 encode
+    report.py            # render result JSON as a human-readable Markdown report
     pipeline.py          # multi-pass orchestration
     cli.py
     llm/
@@ -187,6 +192,7 @@ project/
   scripts/
     run_page.py
     evaluate.py
+    to_markdown.py       # render an existing result.json as result.md
   tests/
     data/
     test_imaging.py

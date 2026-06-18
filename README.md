@@ -134,18 +134,33 @@ Command line:
 
 ```bash
 parse-notebook-page path/to/page.png -o result.json
+# also writes result.md (a human-readable report) next to result.json
 # or:
-python scripts/run_page.py path/to/page.png --model gpt-4o
+python scripts/run_page.py path/to/page.png --model gpt-5.5 -o result.json
 ```
+
+When `-o result.json` is given, a human-readable **`result.md`** is written
+alongside it (override with `-m report.md`, or disable with `--no-markdown`). To
+re-render an existing JSON without re-calling the API:
+
+```bash
+python scripts/to_markdown.py result.json -o result.md
+```
+
+The Markdown report has three parts: a clean reconstructed **transcription**, the
+**chemistry** (drawn structures as SMILES, formulas, reagents, concentrations,
+each explained from the extracted fields), and the **experiment** narrative
+(goal, conditions, procedure, observations, results).
 
 Python API:
 
 ```python
-from notebook_parser import NotebookPipeline, PipelineConfig
+from notebook_parser import NotebookPipeline, PipelineConfig, render_markdown
 
 pipeline = NotebookPipeline(PipelineConfig(page_id="page_57"))
 result = pipeline.run("path/to/page.png")
-print(result.to_json())
+print(result.to_json())          # structured JSON
+print(render_markdown(result))   # human-readable Markdown report
 ```
 
 Offline / custom engine (no network) — inject any object implementing
