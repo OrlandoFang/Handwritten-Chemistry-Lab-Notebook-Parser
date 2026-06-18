@@ -47,16 +47,58 @@ traces back to an image region (§9).
 
 ## Installation
 
-```bash
-python -m venv .venv && source .venv/bin/activate
-pip install -e .            # core (numpy, pydantic, networkx)
-pip install -e '.[vision]'  # OpenCV + scikit-image preprocessing/layout
-pip install -e '.[chem]'    # RDKit chemistry canonicalization
-pip install -e '.[ocr]'     # pytesseract backend (also needs the tesseract binary)
-pip install -e '.[dev]'     # pytest
-# or everything used by the tests:
-pip install -e '.[all]'
+### 1. Create and activate a virtual environment
+
+**Windows (PowerShell):**
+
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
 ```
+
+> If PowerShell reports "running scripts is disabled on this system", allow it for
+> the current session only, then activate again:
+> `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass`
+> (Alternatively use cmd.exe: `python -m venv .venv` then `.venv\Scripts\activate.bat`.)
+
+**macOS / Linux (bash/zsh):**
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+> Note: chain commands with `&&` only in bash/zsh. Windows PowerShell 5.1 (the
+> Windows 10 default) does not support `&&`, so run each command on its own line.
+
+### 2. Install the package
+
+The quoting around the extras differs by shell. Pick the line for yours:
+
+**Windows (PowerShell or cmd.exe):**
+
+```powershell
+pip install -e .              # core (numpy, pydantic, networkx)
+pip install -e ".[vision]"    # OpenCV + scikit-image preprocessing/layout
+pip install -e ".[chem]"      # RDKit chemistry canonicalization
+pip install -e ".[ocr]"       # pytesseract backend (also needs the tesseract binary)
+pip install -e ".[dev]"       # pytest
+pip install -e ".[all]"       # everything used by the tests
+```
+
+**macOS / Linux (bash/zsh):**
+
+```bash
+pip install -e .              # core (numpy, pydantic, networkx)
+pip install -e '.[vision]'    # OpenCV + scikit-image preprocessing/layout
+pip install -e '.[chem]'      # RDKit chemistry canonicalization
+pip install -e '.[ocr]'       # pytesseract backend (also needs the tesseract binary)
+pip install -e '.[dev]'       # pytest
+pip install -e '.[all]'       # everything used by the tests
+```
+
+> The double quotes (`".[all]"`) matter in PowerShell because unquoted square
+> brackets are treated as special characters.
 
 ## Usage
 
