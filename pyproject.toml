@@ -1,0 +1,63 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "notebook-parser"
+version = "0.1.0"
+description = "Multi-pass multimodal parser for handwritten chemistry lab notebook pages."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Notebook Parser Team" }]
+
+# Core runtime dependencies. These are enough to run the full pipeline end to end
+# with the deterministic/heuristic backends. Heavy ML/vision backends are optional
+# (see [project.optional-dependencies]) and are imported lazily so the package
+# works in minimal environments.
+dependencies = [
+    "numpy>=1.24",
+    "pydantic>=2.5",
+    "networkx>=3.0",
+]
+
+[project.optional-dependencies]
+# Classical computer-vision preprocessing and layout heuristics.
+vision = [
+    "opencv-python-headless>=4.8",
+    "scikit-image>=0.22",
+    "Pillow>=10.0",
+]
+# Chemistry normalization/validation (SMILES canonicalization, formula checks).
+chem = [
+    "rdkit>=2023.9",
+]
+# Optional OCR engine backend. A real handwriting model can be swapped in here.
+ocr = [
+    "pytesseract>=0.3.10",
+]
+# Optional deep-learning recognition/layout model backends.
+ml = [
+    "torch>=2.1",
+]
+dev = [
+    "pytest>=7.4",
+]
+all = [
+    "opencv-python-headless>=4.8",
+    "scikit-image>=0.22",
+    "Pillow>=10.0",
+    "rdkit>=2023.9",
+    "pytesseract>=0.3.10",
+    "pytest>=7.4",
+]
+
+[project.scripts]
+parse-notebook-page = "notebook_parser.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
