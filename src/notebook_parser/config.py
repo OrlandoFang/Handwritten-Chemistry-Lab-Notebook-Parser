@@ -1,56 +1,53 @@
 """Pipeline configuration.
 
-All tunables live here so each stage stays free of magic numbers and the whole
-pipeline can be reconfigured (or made deterministic for a given model version)
-from a single object. The config is a Pydantic model so values are validated and
-the object is easy to serialize alongside results for provenance.
+All tunables live here so the pipeline can be reconfigured from a single object
+and the config can be serialized alongside results for provenance. It is a
+Pydantic model so values are validated.
 """
 
 from __future__ import annotations
 
+import os
 from typing import Optional
 
 from pydantic import BaseModel, Field
 
 
-class PreprocessingConfig(BaseModel):
-    """Knobs for the image-normalization stage (§4.1)."""
+class ImagingConfig(BaseModel):
+    """Knobs for local image conditioning before sending to the model (§4.2)."""
 
-    enabled: bool = True
     deskew: bool = True
-    # Skew search is bounded; pages are rarely rotated more than this.
     max_skew_deg: float = Field(default=15.0, ge=0.0, le=45.0)
-    denoise: bool = True
-    normalize_illumination: bool = True
-    # Longest image side is capped to keep downstream stages fast and memory
-    # bounded; 0 disables resizing.
-    max_long_side: int = Field(default=2200, ge=0)
+    # Longest image side sent to the API; bounds token cost while staying legible.
+    max_long_side: int = Field(default=1600, ge=256)
+    # JPEG quality for the encoded data URL (PNG used when lossless preferred).
+    jpeg_quality: int = Field(default=90, ge=50, le=100)
+    encode_format: str = Field(default="jpeg")  # jpeg | png
 
 
-class LayoutConfig(BaseModel):
-    """Knobs for layout segmentation + reading order (§4.2)."""
+class LLMConfig(BaseModel):
+    """OpenAI engine configuration (§4.1).
 
-    # Regions smaller than this fraction of the page area are discarded as noise.
-    min_region_area_frac: float = Field(default=0.0008, ge=0.0, le=1.0)
-    # Vertical gap (as a fraction of median line height) above which two text
-    # rows are considered separate lines.
-    line_gap_frac: float = Field(default=0.6, ge=0.0)
-    # Columns whose centers differ by more than this fraction of page width are
-    # treated as separate reading-order columns.
-    column_split_frac: float = Field(default=0.45, ge=0.0, le=1.0)
+    The API key is read from the environment by default and never stored in the
+    serialized config.
+    """
 
+    model: str = Field(default_factory=lambda: os.environ.get("OPENAI_MODEL", "gpt-4o"))
+    # temperature 0 + a fixed seed give best-effort determinism (§10).
+    temperature: float = Field(default=0.0, ge=0.0, le=2.0)
+    seed: int = 7
+    max_retries: int = Field(default=4, ge=0)
+    timeout_s: float = Field(default=120.0, gt=0.0)
+    # Max alternative readings the transcription pass may return per line.
+    max_alternatives: int = Field(default=2, ge=0)
 
-class OCRConfig(BaseModel):
-    """Knobs for handwriting transcription (§4.3)."""
-
-    # Preferred backend; the pipeline falls back gracefully if unavailable.
-    backend: str = Field(default="auto")  # auto | tesseract | fallback
-    language_model_rescoring: bool = True
-    max_alternatives: int = Field(default=3, ge=0)
+    def api_key(self) -> Optional[str]:
+        """Return the API key from the environment (not persisted in config)."""
+        return os.environ.get("OPENAI_API_KEY")
 
 
 class ConfidenceConfig(BaseModel):
-    """Thresholds that drive the human-review routing (§9)."""
+    """Thresholds that drive human-review routing (§9)."""
 
     high: float = Field(default=0.85, ge=0.0, le=1.0)
     medium: float = Field(default=0.6, ge=0.0, le=1.0)
@@ -68,12 +65,12 @@ class PipelineConfig(BaseModel):
     """Top-level configuration for the whole pipeline."""
 
     page_id: Optional[str] = None
-    preprocessing: PreprocessingConfig = Field(default_factory=PreprocessingConfig)
-    layout: LayoutConfig = Field(default_factory=LayoutConfig)
-    ocr: OCRConfig = Field(default_factory=OCRConfig)
+    imaging: ImagingConfig = Field(default_factory=ImagingConfig)
+    llm: LLMConfig = Field(default_factory=LLMConfig)
     confidence: ConfidenceConfig = Field(default_factory=ConfidenceConfig)
 
-    # Stage toggles let callers run partial pipelines (e.g. layout-only).
-    do_symbols: bool = True
+    # Stage toggles let callers run partial pipelines.
     do_chemistry: bool = True
-    do_semantics: bool = True
+    do_experiment: bool = True
+    # Canonicalize/validate SMILES with RDKit when available.
+    canonicalize_smiles: bool = True

@@ -4,41 +4,33 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "notebook-parser"
-version = "0.1.0"
-description = "Multi-pass multimodal parser for handwritten chemistry lab notebook pages."
+version = "0.2.0"
+description = "Multi-pass multimodal parser for handwritten chemistry lab notebook pages (OpenAI)."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [{ name = "Notebook Parser Team" }]
 
-# Core runtime dependencies. These are enough to run the full pipeline end to end
-# with the deterministic/heuristic backends. Heavy ML/vision backends are optional
-# (see [project.optional-dependencies]) and are imported lazily so the package
-# works in minimal environments.
+# Core runtime dependencies. Enough to run the full multimodal pipeline against
+# the OpenAI API. Image-conditioning and chemistry-validation extras are optional
+# and imported lazily so the package works in minimal environments.
 dependencies = [
-    "numpy>=1.24",
+    "openai>=1.40",
     "pydantic>=2.5",
-    "networkx>=3.0",
+    "numpy>=1.24",
+    "Pillow>=10.0",
 ]
 
 [project.optional-dependencies]
-# Classical computer-vision preprocessing and layout heuristics.
+# Optional local image conditioning (deskew, denoise) before sending to the API.
 vision = [
     "opencv-python-headless>=4.8",
     "scikit-image>=0.22",
-    "Pillow>=10.0",
 ]
-# Chemistry normalization/validation (SMILES canonicalization, formula checks).
+# Chemistry normalization/validation (SMILES canonicalization).
 chem = [
     "rdkit>=2023.9",
-]
-# Optional OCR engine backend. A real handwriting model can be swapped in here.
-ocr = [
-    "pytesseract>=0.3.10",
-]
-# Optional deep-learning recognition/layout model backends.
-ml = [
-    "torch>=2.1",
+    "networkx>=3.0",
 ]
 dev = [
     "pytest>=7.4",
@@ -46,9 +38,8 @@ dev = [
 all = [
     "opencv-python-headless>=4.8",
     "scikit-image>=0.22",
-    "Pillow>=10.0",
     "rdkit>=2023.9",
-    "pytesseract>=0.3.10",
+    "networkx>=3.0",
     "pytest>=7.4",
 ]
 
