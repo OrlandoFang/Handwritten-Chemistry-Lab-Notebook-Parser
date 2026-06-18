@@ -41,8 +41,13 @@ SMILES when installed.
 ## Requirements
 
 - An OpenAI API key in `OPENAI_API_KEY`.
-- Optionally `OPENAI_MODEL` to pick the model (defaults to `gpt-4o`; must be a
-  vision-capable model that supports Structured Outputs).
+- Optionally `OPENAI_MODEL` to pick the model (defaults to `gpt-5.5`; must be a
+  vision-capable model that supports Structured Outputs). Older models such as
+  `gpt-4o` also work.
+
+> `gpt-image-2` is an image *generation* model and is not used here — this project
+> reads images and emits structured text, so it needs a vision-capable
+> understanding model (e.g. `gpt-5.5`).
 
 ## Installation
 
@@ -163,7 +168,9 @@ flag.
 ## Determinism, cost, and latency
 
 - Each page makes **three** model calls (transcription, chemistry, experiment).
-- `temperature=0` + a fixed `seed` give best-effort reproducibility; hosted models
+- A fixed `seed` gives best-effort reproducibility. `temperature` is omitted by
+  default because newer GPT-5 family models only accept their default; the engine
+  also drops any sampling param a given model rejects and retries. Hosted models
   are not bit-exact, so determinism is not guaranteed.
 - Image long side is capped (default 1600 px) to bound token cost; tune via
   `PipelineConfig.imaging.max_long_side`.
