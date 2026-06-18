@@ -98,8 +98,11 @@ schema via OpenAI Structured Outputs.
   prompt, an optional image, and a Pydantic response schema, return a validated
   instance of that schema.
 - Default implementation `OpenAIEngine` uses `chat.completions.parse` (vision +
-  Structured Outputs) with `temperature=0` and a fixed `seed` for best-effort
-  determinism, plus bounded retries with exponential backoff.
+  Structured Outputs) with a fixed `seed` for best-effort determinism. The default
+  model is `gpt-5.5`; since newer GPT-5 family models only accept their default
+  `temperature`, temperature is omitted by default and the engine drops any
+  sampling parameter a model rejects and retries. Bounded retries/backoff are
+  handled by the SDK.
 - The engine is **injectable**, so tests run fully offline with a stub and a real
   fine-tuned/alternative model can be swapped in without touching the passes.
 
@@ -237,8 +240,9 @@ the canonical `types.py` models.
 ---
 
 ## 10. Determinism and Safety
-- `temperature=0` + fixed `seed` for best-effort reproducibility (hosted models
-  are not bit-exact; this is acknowledged, not guaranteed).
+- A fixed `seed` (and the model's default temperature) for best-effort
+  reproducibility (hosted models are not bit-exact; this is acknowledged, not
+  guaranteed).
 - The experiment pass is evidence-constrained and receives no pixels, reducing
   hallucination; inferred items are explicitly marked.
 - The API key is read from `OPENAI_API_KEY`; it is never logged or persisted.
