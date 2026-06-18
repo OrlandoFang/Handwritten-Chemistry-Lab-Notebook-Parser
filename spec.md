@@ -1,19 +1,35 @@
-# Spec: Handwritten Chemistry Lab Notebook Parser
+# Spec: Handwritten Chemistry Lab Notebook Parser (multimodal LLM edition)
 
 ## 1. Objective
-Build a robust parser that converts a scanned handwritten chemistry lab notebook page into structured, machine-readable output. The system must handle:
+Convert a scanned/photographed handwritten chemistry lab notebook page into
+structured, machine-readable JSON. The page may contain:
 
-- messy handwritten text,
-- scientific notation and symbols,
-- hand-drawn chemical structures,
-- experiment-level semantics such as goal, conditions, procedure, and results.
+- messy cursive/print handwriting,
+- scientific notation, units, and special symbols (`°C`, `μL`, `λmax`, `×10⁻³`),
+- hand-drawn chemical structures (e.g. crown ethers, LiTFSI),
+- arithmetic/derivations (e.g. Faradaic charge → moles),
+- tables of measurements,
+- experiment-level semantics: goal, conditions, procedure, observations, results.
 
-The main design principle is **multi-pass, multimodal extraction**: do not rely on a single OCR or vision-language pass. Instead, combine layout analysis, handwriting recognition, symbol recovery, chemistry-aware parsing, and structured post-processing.
+### Why this rewrite
+The previous version relied on classical CV + heuristic OCR. On real handwriting
+that approach produces nonsense: there is no bundled handwriting model, so the
+transcript is empty/garbage and every downstream stage degrades.
+
+**New design principle:** use a hosted **multimodal large language model** (the
+OpenAI API) as the recognition and reasoning engine, driven by a **multi-pass,
+schema-constrained** pipeline. The model reads the page image directly; classical
+image processing is reduced to light pre-conditioning. Each pass returns data via
+**Structured Outputs** (a strict JSON schema), so the model cannot return free
+text that breaks the contract.
+
+GPU note: inference runs on OpenAI's servers, so a local GPU is **not required**.
+A GPU, if present, only accelerates optional local image preprocessing.
 
 ---
 
 ## 2. Output Schema
-The parser should emit JSON with the following top-level structure:
+The parser emits JSON with this exact top-level structure:
 
 ```json
 {
@@ -43,143 +59,98 @@ The parser should emit JSON with the following top-level structure:
 ```
 
 ### Field conventions
-- `layout`: ordered regions with bounding boxes and reading order.
-- `transcript`: line-level transcription with source region, confidence, and optional alternative candidates.
-- `symbols`: normalized scientific symbols and units (e.g., `°C`, `μL`, `λmax`).
-- `chemistry.structures`: machine-readable representation of drawn molecules when detectable, preferably as SMILES or a graph format.
-- `experiment`: distilled semantic summary with evidence links back to the transcript.
+- `layout`: ordered regions with bounding boxes (pixel coords) and reading order.
+- `transcript`: line-level transcription with source region, confidence, and
+  optional alternative readings.
+- `symbols`: normalized scientific symbols/units with the raw form they replaced.
+- `chemistry.structures`: machine-readable structures, preferably **SMILES**, plus
+  a human-readable name and an explicit `uncertain` flag.
+- `experiment`: distilled summary, each item linked to transcript evidence and
+  marked `inferred` when it is a conclusion rather than a direct quote.
+- `confidence`: per-field scores plus a weighted overall.
 
 ---
 
 ## 3. System Overview
-The system should use a staged pipeline:
+Staged, multi-pass pipeline:
 
-1. **Image normalization**
-2. **Layout segmentation**
-3. **Text line detection**
-4. **Handwriting OCR / transcription**
-5. **Symbol and unit recovery**
-6. **Chemistry-specific extraction**
-7. **Experiment-level semantic synthesis**
-8. **Confidence scoring and validation**
+1. **Image conditioning** — load, optional deskew, downscale to a token/cost
+   budget, encode to a base64 data URL.
+2. **Transcription pass (vision)** — model returns `layout`, `transcript`, and
+   recovered `symbols` from the image.
+3. **Chemistry pass (vision)** — model returns reagents, formulas, drawn
+   structures (SMILES), and concentrations, grounded in both image and transcript.
+4. **Experiment pass (text)** — model synthesizes goal/conditions/procedure/
+   observations/results **using only the transcript + chemistry as evidence** (no
+   pixels), to minimize hallucination.
+5. **Assembly + validation** — merge passes into the canonical schema, compute
+   confidence, and validate.
 
-Each stage should preserve provenance so downstream stages can trace every output back to an image region.
-
----
-
-## 4. Algorithm Choices
-
-### 4.1 Image preprocessing
-Use classic image processing before any recognition model.
-
-Recommended steps:
-- deskew and dewarp the page,
-- denoise while preserving strokes,
-- estimate background shading and normalize illumination,
-- binarize adaptively when helpful, but retain a grayscale copy for models,
-- enhance faint pencil/pen strokes with contrast normalization.
-
-Suggested methods:
-- Hough-based or projection-based deskewing,
-- local thresholding (Sauvola / adaptive thresholding) for auxiliary masks,
-- morphological filtering to remove scan noise,
-- optional page boundary detection.
-
-### 4.2 Layout analysis
-Use a document layout detector to split the page into:
-- handwritten text blocks,
-- tables,
-- chemical drawings,
-- annotations / marginal notes,
-- headings and labels.
-
-Preferred approach:
-- a lightweight object detection or segmentation model trained on notebook-style pages,
-- supplemented by heuristic line grouping when model confidence is low.
-
-Output should include bounding boxes and an estimated reading order.
-
-### 4.3 Handwriting transcription
-Use a handwriting-oriented recognizer rather than general OCR.
-
-Recommended strategy:
-- line-level recognition over word-level recognition,
-- beam search with language model rescoring,
-- character-level confidence tracking,
-- fallback to segment-level transcription for low-confidence regions.
-
-Why line-level first:
-- handwritten chemistry notes often have irregular spacing,
-- symbols and subscripts are easier to interpret with broader context,
-- line-level decoding reduces broken tokens.
-
-### 4.4 Scientific symbol recovery
-Standard OCR often damages symbols like `°`, `μ`, `λ`, `θ`, superscripts, subscripts, and reaction arrows.
-
-Add a dedicated symbol normalization pass that:
-- detects likely scientific tokens,
-- repairs common OCR confusions such as `u` vs `μ`, `oC` vs `°C`, `x10^-3` vs `×10^-3`,
-- recognizes units and concentration patterns,
-- preserves formatting semantics such as superscript/subscript when meaningful.
-
-Use rule-based repair first, then a learned correction model for ambiguous cases.
-
-### 4.5 Chemistry extraction
-Chemistry content should be handled as a separate modality.
-
-For hand-drawn structures:
-- detect drawing regions,
-- vectorize strokes where possible,
-- infer atoms, bonds, ring patterns, and arrow annotations,
-- convert to a graph representation and, when feasible, SMILES-like output.
-
-For formulas and reagents:
-- parse chemical names, abbreviations, stoichiometry, and concentrations,
-- normalize common lab shorthand,
-- link reagents to nearby procedure text and tables.
-
-If full structure recovery is unreliable, the system should still output a partial structured representation with explicit uncertainty.
-
-### 4.6 Experiment-level understanding
-Use a final semantic layer that converts extracted text and chemistry into an experiment summary.
-
-This layer should identify:
-- objective / hypothesis,
-- starting materials,
-- experimental conditions,
-- actions performed,
-- measurements taken,
-- observations,
-- final outcome.
-
-This can be implemented with a retrieval-augmented or constrained LLM summarizer that is only allowed to use evidence from the extracted transcript and chemistry fields.
+Each pass is independent and swappable. Every pass is constrained by a Pydantic
+schema via OpenAI Structured Outputs.
 
 ---
 
-## 5. Tooling Choices
+## 4. Engine and Passes
 
-### Core libraries
-- **Python** as the main implementation language.
-- **OpenCV** for preprocessing and geometric correction.
-- **PyTorch** for recognition models.
-- **scikit-image** for image cleanup and morphology.
-- **pydantic** for typed output validation.
-- **networkx** for chemical graph representation.
-- **rdkit** for chemistry normalization and validation when structures can be inferred.
+### 4.1 LLM engine
+- A thin `LLMEngine` interface with one operation: given a system prompt, a user
+  prompt, an optional image, and a Pydantic response schema, return a validated
+  instance of that schema.
+- Default implementation `OpenAIEngine` uses `chat.completions.parse` (vision +
+  Structured Outputs) with `temperature=0` and a fixed `seed` for best-effort
+  determinism, plus bounded retries with exponential backoff.
+- The engine is **injectable**, so tests run fully offline with a stub and a real
+  fine-tuned/alternative model can be swapped in without touching the passes.
 
-### Optional model components
-- A handwriting OCR model fine-tuned on notebook pages.
-- A layout detector trained on scientific and handwritten documents.
-- A text-correction language model specialized for chemistry lab language.
-- A structure-extraction module for drawings.
+### 4.2 Image conditioning
+- Load via OpenCV/Pillow.
+- Optional deskew (projection-profile) when OpenCV is available.
+- Downscale longest side to a configurable cap (default 1600 px) to bound cost.
+- Encode as PNG/JPEG base64 data URL; pass the pixel dimensions to the model so
+  bounding boxes are in the correct coordinate space.
 
-### Evaluation tools
-- character error rate (CER),
-- word error rate (WER),
-- symbol-level accuracy,
-- reagent/formula F1,
-- structure recovery accuracy,
-- experiment-summary factual consistency.
+### 4.3 Transcription pass
+Prompt the model to:
+- read **every** line verbatim, preserving symbols/sub/superscripts,
+- group lines into typed regions (text/heading/table/drawing/annotation/label),
+- assign a human reading order,
+- give per-line confidence and up to N alternative readings for ambiguous lines,
+- list recovered scientific symbols/units with the raw and normalized form.
+
+### 4.4 Chemistry pass
+Prompt the model to extract, grounded in the image + transcript:
+- reagents (name, normalized name, role, quantity, concentration, evidence),
+- formulas (raw + normalized, validity),
+- hand-drawn structures as **SMILES** + name, with an `uncertain` flag when the
+  drawing is ambiguous,
+- concentrations (value, unit, species).
+
+SMILES are optionally canonicalized/validated with RDKit when installed.
+
+### 4.5 Experiment pass
+Text-only (transcript + chemistry as the sole evidence). Extract goal, conditions,
+procedure, observations, results. Each item must cite the transcript line ids it
+derives from and set `inferred=true` if it is a synthesized conclusion. The model
+is instructed never to introduce chemistry facts absent from the evidence.
+
+### 4.6 Confidence and review
+- Per-field confidence aggregates the model-reported confidences.
+- Overall is a weighted mean emphasizing transcription and chemistry.
+- Low-confidence transcript lines are flagged `needs_review`.
+
+---
+
+## 5. Tooling
+- **Python** main language.
+- **openai** (>=1.40) Python SDK — multimodal Structured Outputs.
+- **pydantic** v2 — schemas + validation.
+- **OpenCV / Pillow** — optional image conditioning.
+- **RDKit** — optional SMILES canonicalization/validation.
+- **networkx** — optional molecular-graph utilities.
+
+Evaluation tools: CER/WER, symbol F1, reagent/formula F1, structure validity,
+experiment factual-consistency spot checks.
 
 ---
 
@@ -190,53 +161,36 @@ project/
   README.md
   spec.md
   pyproject.toml
-  src/
-    notebook_parser/
+  src/notebook_parser/
+    __init__.py
+    config.py            # pipeline + LLM configuration
+    types.py             # canonical Pydantic output schema
+    imaging.py           # load / deskew / resize / base64 encode
+    pipeline.py          # multi-pass orchestration
+    cli.py
+    llm/
       __init__.py
-      config.py
-      pipeline.py
-      types.py
-      preprocessing/
-        deskew.py
-        denoise.py
-        normalize.py
-      layout/
-        detect.py
-        reading_order.py
-      ocr/
-        recognize.py
-        decode.py
-        correct.py
-      symbols/
-        normalize.py
-        patterns.py
-      chemistry/
-        extract.py
-        structures.py
-        normalize.py
-      semantics/
-        summarize.py
-        evidence.py
-      validation/
-        schema.py
-        confidence.py
-  models/
-    layout/
-    ocr/
-    chemistry/
-  tests/
-    data/
-    test_preprocessing.py
-    test_layout.py
-    test_ocr.py
-    test_symbols.py
-    test_chemistry.py
-    test_semantics.py
+      client.py          # LLMEngine protocol, OpenAIEngine, StubEngine
+      prompts.py         # system/user prompt templates per pass
+      schemas.py         # structured-output response models per pass
+    passes/
+      __init__.py
+      transcription.py    # layout + transcript + symbols
+      chemistry.py        # reagents/formulas/structures/concentrations
+      experiment.py       # goal/conditions/procedure/observations/results
+    validation/
+      schema.py          # schema enforcement
+      confidence.py      # confidence aggregation + review flags
   scripts/
     run_page.py
     evaluate.py
-    train_layout.py
-    train_ocr.py
+  tests/
+    data/
+    test_imaging.py
+    test_llm.py
+    test_passes.py
+    test_validation.py
+    test_pipeline.py
 ```
 
 ---
@@ -244,116 +198,78 @@ project/
 ## 7. Pipeline Details
 
 ### `pipeline.py`
-Orchestrates the full flow:
-1. load page image,
-2. preprocess,
-3. detect layout regions,
-4. run transcription on text regions,
-5. detect and parse chemical drawings,
-6. normalize symbols and formulas,
-7. produce experiment summary,
-8. validate JSON output.
+1. condition image (load, deskew?, resize, encode),
+2. transcription pass → layout + transcript + symbols,
+3. chemistry pass → chemistry section,
+4. experiment pass → experiment section,
+5. assemble canonical result,
+6. compute confidence + review flags,
+7. validate schema and return.
 
 ### `types.py`
-Define all intermediate and final dataclasses / Pydantic models:
-- bounding boxes,
-- text lines,
-- symbol tokens,
-- reagent mentions,
-- chemical structures,
-- experiment evidence items.
+Canonical Pydantic models for boxes, regions, transcript lines, symbol tokens,
+reagents, formulas, structures, concentrations, evidence items, confidence, and
+the top-level result that serializes to §2.
 
-### `validation/`
-Enforce schema correctness and confidence thresholds. Low-confidence extractions should still be emitted, but marked clearly.
+### `llm/`
+`schemas.py` defines per-pass response models that are Structured-Output friendly
+(all fields required, optionals expressed as nullable). The passes map those to
+the canonical `types.py` models.
 
 ---
 
-## 8. Matching and Post-processing Rules
-
-The parser should apply chemistry-aware post-processing rules such as:
-- merging split tokens around units and superscripts,
-- correcting common handwritten abbreviations,
-- associating reagent names with nearby quantities,
-- linking arrows, reaction conditions, and product annotations,
-- preserving table rows and column semantics.
-
-Examples:
-- `10 mL` should be recognized as a single quantity unit pair.
-- `0.5 M HCl` should remain chemically typed, not generic text.
-- `Δ` or `heat` should be normalized into reaction-condition metadata when used in context.
+## 8. Post-processing Rules
+- Keep quantity/unit pairs intact (`10 mL`, `0.5 M HCl`).
+- Preserve scientific notation and symbols verbatim in the transcript.
+- Associate reagents with nearby quantities/concentrations (the model is prompted
+  to do this; validated structurally).
+- Normalize obvious shorthand (`v/v`, `rt`, `Δ`/heat → reaction condition).
+- Canonicalize SMILES via RDKit when available; flag invalid SMILES as uncertain.
 
 ---
 
 ## 9. Confidence and Human Review
-Every extracted field should carry a confidence score.
-
-Rules:
-- High-confidence fields can be used directly.
-- Medium-confidence fields should expose alternatives.
-- Low-confidence regions should be flagged for human review.
-
-The system should also preserve provenance:
-- original image crop,
-- bounding box,
-- recognition candidates,
-- correction steps applied.
+- Every field carries a confidence score.
+- High → usable directly; medium → expose alternatives; low → flag for review.
+- Provenance is preserved: bounding boxes, alternative readings, evidence links,
+  and the pass that produced each datum.
 
 ---
 
-## 10. Testing Strategy
-
-### Unit tests
-- image normalization on synthetic noisy scans,
-- bounding-box ordering,
-- symbol normalization edge cases,
-- formula parsing and reagent extraction,
-- schema validation.
-
-### Integration tests
-- full-page parsing on notebook samples,
-- regression tests for tricky symbols,
-- chemistry drawing detection on annotated examples.
-
-### Error analysis
-Track failures by category:
-- handwriting ambiguity,
-- symbol confusion,
-- table misreading,
-- chemistry-structure misses,
-- semantic hallucination.
-
-Use these categories to prioritize model retraining and rule updates.
+## 10. Determinism and Safety
+- `temperature=0` + fixed `seed` for best-effort reproducibility (hosted models
+  are not bit-exact; this is acknowledged, not guaranteed).
+- The experiment pass is evidence-constrained and receives no pixels, reducing
+  hallucination; inferred items are explicitly marked.
+- The API key is read from `OPENAI_API_KEY`; it is never logged or persisted.
 
 ---
 
-## 11. Design Constraints
-
-- The system should be modular so each component can be swapped independently.
-- The output must be deterministic for the same model version and input image.
-- The semantic summary must not invent chemistry details that are absent from the page.
-- Any inferred result should be distinguishable from directly observed text.
-
----
-
-## 12. Implementation Milestones
-
-1. Build preprocessing and layout detection.
-2. Implement line-level handwriting transcription.
-3. Add symbol recovery and chemistry token normalization.
-4. Add chemical drawing extraction.
-5. Build semantic experiment summarization.
-6. Add confidence scoring, validation, and tests.
-7. Tune on hard notebook examples.
+## 11. Testing Strategy
+- **Unit**: image conditioning, prompt/schema construction, response→canonical
+  mapping, confidence aggregation, schema validation — all offline via a
+  `StubEngine` (no network, deterministic).
+- **Integration**: full pipeline with the stub engine asserting a schema-valid
+  result and correct field wiring.
+- **Live (manual/opt-in)**: a script run against the real API with a key, used for
+  qualitative checks and the evaluation harness.
 
 ---
 
-## 13. Notes on Evaluation Alignment
-The evaluation emphasizes four layers:
+## 12. Milestones
+1. Canonical schema + config + imaging.
+2. LLM engine (OpenAI + stub) and prompts.
+3. Transcription, chemistry, experiment passes.
+4. Pipeline assembly + validation + confidence.
+5. CLI + evaluation harness.
+6. Tests (offline) green; live smoke test with a key.
 
-- **Text**: maximize transcription fidelity.
-- **Special symbols**: preserve scientific notation and formatting.
-- **Chemistry**: extract structures, reagents, and concentrations.
-- **Experiment**: infer intent, conditions, and outcome without hallucination.
+---
 
-This spec is designed so each layer is handled by a dedicated stage, with the later stages consuming structured evidence from earlier stages rather than raw pixels alone.
-
+## 13. Evaluation Alignment
+Four layers, each owned by a pass:
+- **Text** — transcription fidelity (CER/WER).
+- **Symbols** — scientific-notation/unit preservation (symbol F1).
+- **Chemistry** — reagents, concentrations, and SMILES structures (F1/validity).
+- **Experiment** — intent/conditions/outcome without hallucination (factual
+  consistency against cited evidence).

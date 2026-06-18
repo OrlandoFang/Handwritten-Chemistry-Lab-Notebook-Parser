@@ -216,7 +216,8 @@ class ChemicalStructure(BaseModel):
     consumers can tell inferred structures from confidently recovered ones.
     """
 
-    region_id: str
+    region_id: Optional[str] = None
+    name: Optional[str] = None
     smiles: Optional[str] = None
     atoms: list[AtomNode] = Field(default_factory=list)
     bonds: list[BondEdge] = Field(default_factory=list)

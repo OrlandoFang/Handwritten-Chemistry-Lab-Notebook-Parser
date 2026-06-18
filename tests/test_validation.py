@@ -1,4 +1,4 @@
-"""Tests for confidence scoring and schema validation (§7, §9, §10)."""
+"""Tests for confidence scoring and schema validation (§9, §11)."""
 
 from __future__ import annotations
 
@@ -26,10 +26,7 @@ def _result() -> ParseResult:
     return ParseResult(
         page_id="p1",
         layout=[
-            LayoutRegion(
-                id="r0", type=RegionType.TEXT,
-                bbox=BoundingBox(x=0, y=0, width=10, height=10), confidence=0.8,
-            )
+            LayoutRegion(id="r0", type=RegionType.TEXT, bbox=BoundingBox(x=0, y=0, width=10, height=10), confidence=0.8)
         ],
         transcript=[
             TranscriptLine(id="r0_l0", region_id="r0", text="hi", confidence=0.9),
@@ -43,7 +40,7 @@ def test_compute_confidence_weighted_and_per_field():
     report = compute_confidence(_result())
     assert 0.0 <= report.overall <= 1.0
     assert "transcript" in report.fields and "layout" in report.fields
-    assert "chemistry" not in report.fields  # empty -> excluded
+    assert "chemistry" not in report.fields
 
 
 def test_apply_review_flags_marks_low_confidence():

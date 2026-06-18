@@ -2,10 +2,11 @@
 """Run the parser on a single page image and emit JSON.
 
 Usage:
-    python scripts/run_page.py path/to/page.png [-o out.json] [--ocr-backend auto]
+    python scripts/run_page.py path/to/page.png [-o out.json] [--model gpt-4o]
 
-This is a thin wrapper around :func:`notebook_parser.cli.main` so the package's
-console-script and the repo script behave identically.
+Requires OPENAI_API_KEY in the environment. This is a thin wrapper around
+:func:`notebook_parser.cli.main` so the console-script and the repo script behave
+identically.
 """
 
 from __future__ import annotations

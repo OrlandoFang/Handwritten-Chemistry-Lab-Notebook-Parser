@@ -10,9 +10,18 @@ The public surface is intentionally small: construct/configure a
 """
 
 from .config import PipelineConfig
+from .llm.client import LLMEngine, OpenAIEngine, StubEngine
 from .pipeline import NotebookPipeline
 from .types import ParseResult
 
-__all__ = ["PipelineConfig", "NotebookPipeline", "ParseResult", "__version__"]
+__all__ = [
+    "PipelineConfig",
+    "NotebookPipeline",
+    "ParseResult",
+    "LLMEngine",
+    "OpenAIEngine",
+    "StubEngine",
+    "__version__",
+]
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"

@@ -1,62 +1,127 @@
 # Handwritten Chemistry Lab Notebook Parser
 
-A multi-pass, multimodal pipeline that converts a scanned handwritten chemistry
-lab notebook page into structured, machine-readable JSON. It combines classical
-image processing, layout analysis, (pluggable) handwriting transcription,
-scientific-symbol recovery, chemistry-aware extraction, and a constrained
-experiment summarizer. See [`spec.md`](spec.md) for the full design.
+Converts a scanned/photographed handwritten chemistry lab notebook page into
+structured, machine-readable JSON, using a hosted **multimodal LLM (OpenAI API)**
+as the recognition + reasoning engine, driven by a **multi-pass, schema-constrained**
+pipeline. See [`spec.md`](spec.md) for the full design.
 
-## Why this design
+## Why an LLM engine
 
-The spec calls for trained ML components (a handwriting OCR model, a layout
-detector, a drawing→SMILES extractor). Rather than hard-depend on weights that
-may be unavailable, every model-backed stage is programmed against a small
-**interface** and ships with a **deterministic, zero-dependency default backend**
-plus optional real backends (Tesseract for OCR, RDKit for chemistry). The result:
+The earlier version used classical CV + heuristic OCR. On real handwriting it
+produced nonsense — there was no handwriting model, so the transcript was empty
+and every downstream stage degraded. This version sends the page image to a
+vision-capable model and constrains every response with **Structured Outputs**, so
+the model reads the handwriting, recovers symbols, infers SMILES for drawn
+molecules, and summarizes the experiment — while still emitting the exact JSON
+schema below.
 
-- the whole pipeline runs end to end and emits the exact spec schema anywhere,
-- heavy/optional dependencies are imported lazily and degrade gracefully,
-- a trained model can be dropped into any stage without touching the rest,
-- output is deterministic for a fixed config + input.
-
-This honors the spec's modularity and determinism constraints (§11) while staying
-honest about which parts need trained models to reach production accuracy.
+Inference runs on OpenAI's servers, so **a local GPU is not required**.
 
 ## Architecture
 
-The staged pipeline (§3, §7), each stage swappable:
+Multi-pass pipeline (§3, §7), each pass swappable and schema-constrained:
 
 ```
-load → preprocess → layout → transcribe → symbols → chemistry → semantics
-     → confidence → validate
+condition image → transcription → chemistry → experiment → assemble → confidence → validate
 ```
 
-| Stage | Module | Default backend |
-|-------|--------|-----------------|
-| Image normalization | `preprocessing/` | OpenCV/scikit-image (deskew, denoise, illumination, binarize) |
-| Layout + reading order | `layout/` | Connected-component heuristics (`HeuristicLayoutDetector`) |
-| Handwriting OCR | `ocr/` | `Recognizer` protocol; Tesseract if installed, else review-flagged fallback |
-| Symbol recovery | `symbols/` | Rule-based repair + unit/Greek/notation catalog |
-| Chemistry extraction | `chemistry/` | Element-validated formula/reagent/concentration parsing; RDKit canonicalization; heuristic drawing detection |
-| Experiment semantics | `semantics/` | Constrained, evidence-only cue classifier |
-| Confidence + schema | `validation/` | Weighted per-field scoring + Pydantic schema enforcement |
+| Stage | Module | What it does |
+|-------|--------|--------------|
+| Image conditioning | `imaging.py` | load, optional deskew, downscale, base64 encode |
+| Transcription pass (vision) | `passes/transcription.py` | layout regions, line transcript, recovered symbols |
+| Chemistry pass (vision) | `passes/chemistry.py` | reagents, formulas, drawn structures (SMILES), concentrations |
+| Experiment pass (text-only) | `passes/experiment.py` | goal/conditions/procedure/observations/results, evidence-linked |
+| Engine | `llm/` | `LLMEngine` protocol; `OpenAIEngine` (vision + Structured Outputs) and offline `StubEngine` |
+| Confidence + schema | `validation/` | per-field + overall confidence, review flags, Pydantic schema enforcement |
 
-All artifacts are typed Pydantic models (`types.py`) and carry provenance
-(bounding boxes, candidate alternatives, applied corrections) so every output
-traces back to an image region (§9).
+The experiment pass receives **only the transcript + chemistry** (no pixels) and
+must cite transcript line ids, minimizing hallucination (§10). RDKit canonicalizes
+SMILES when installed.
+
+## Requirements
+
+- An OpenAI API key in `OPENAI_API_KEY`.
+- Optionally `OPENAI_MODEL` to pick the model (defaults to `gpt-4o`; must be a
+  vision-capable model that supports Structured Outputs).
 
 ## Installation
 
-```bash
-python -m venv .venv && source .venv/bin/activate
-pip install -e .            # core (numpy, pydantic, networkx)
-pip install -e '.[vision]'  # OpenCV + scikit-image preprocessing/layout
-pip install -e '.[chem]'    # RDKit chemistry canonicalization
-pip install -e '.[ocr]'     # pytesseract backend (also needs the tesseract binary)
-pip install -e '.[dev]'     # pytest
-# or everything used by the tests:
-pip install -e '.[all]'
+### 1. Create and activate a virtual environment
+
+**Windows (PowerShell):**
+
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
 ```
+
+> If PowerShell reports "running scripts is disabled on this system", allow it for
+> the current session only, then activate again:
+> `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass`
+> (Alternatively use cmd.exe: `python -m venv .venv` then `.venv\Scripts\activate.bat`.)
+
+**macOS / Linux (bash/zsh):**
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+> Chain commands with `&&` only in bash/zsh. Windows PowerShell 5.1 (the Windows 10
+> default) does not support `&&`, so run each command on its own line.
+
+### 2. Upgrade pip (required)
+
+Editable installs need **pip ≥ 21.3** (PEP 660). Older pip (e.g. 20.x) fails with
+*"File setup.py not found … editable mode currently requires a setup.py based
+build"*. Upgrade first:
+
+```powershell
+python -m pip install --upgrade pip setuptools wheel
+```
+
+### 3. Install the package
+
+**Windows (PowerShell or cmd.exe):**
+
+```powershell
+pip install -e .            # core (openai, pydantic, numpy, Pillow)
+pip install -e ".[chem]"    # RDKit SMILES canonicalization (recommended)
+pip install -e ".[vision]"  # OpenCV/scikit-image (optional local preprocessing)
+pip install -e ".[dev]"     # pytest
+pip install -e ".[all]"     # everything (used by the tests)
+```
+
+**macOS / Linux (bash/zsh):**
+
+```bash
+pip install -e .            # core (openai, pydantic, numpy, Pillow)
+pip install -e '.[chem]'    # RDKit SMILES canonicalization (recommended)
+pip install -e '.[vision]'  # OpenCV/scikit-image (optional local preprocessing)
+pip install -e '.[dev]'     # pytest
+pip install -e '.[all]'     # everything (used by the tests)
+```
+
+> The double quotes (`".[all]"`) matter in PowerShell because unquoted square
+> brackets are treated as special characters.
+
+### 4. Set your API key
+
+**Windows (PowerShell):**
+
+```powershell
+$env:OPENAI_API_KEY = "sk-..."          # current session only
+setx OPENAI_API_KEY "sk-..."            # persist for future sessions (reopen shell)
+```
+
+**macOS / Linux (bash/zsh):**
+
+```bash
+export OPENAI_API_KEY="sk-..."
+```
+
+> Running as a Cursor Cloud Agent? Add `OPENAI_API_KEY` under
+> **Cloud Agents → Secrets** in the Cursor dashboard so it is injected into the VM.
 
 ## Usage
 
@@ -64,8 +129,8 @@ Command line:
 
 ```bash
 parse-notebook-page path/to/page.png -o result.json
-# or, equivalently:
-python scripts/run_page.py path/to/page.png --ocr-backend auto
+# or:
+python scripts/run_page.py path/to/page.png --model gpt-4o
 ```
 
 Python API:
@@ -73,16 +138,17 @@ Python API:
 ```python
 from notebook_parser import NotebookPipeline, PipelineConfig
 
-pipeline = NotebookPipeline(PipelineConfig(page_id="page_01"))
+pipeline = NotebookPipeline(PipelineConfig(page_id="page_57"))
 result = pipeline.run("path/to/page.png")
 print(result.to_json())
 ```
 
-Injecting a custom recognizer (any object with `recognize(crop) -> RecognitionOutput`):
+Offline / custom engine (no network) — inject any object implementing
+`LLMEngine.extract(...)`, e.g. the bundled `StubEngine` or your own model:
 
 ```python
-from notebook_parser.ocr import SequenceRecognizer  # or your trained model
-result = pipeline.run(image, recognizer=SequenceRecognizer(known_lines))
+from notebook_parser import NotebookPipeline, StubEngine
+pipeline = NotebookPipeline(engine=StubEngine(canned_responses))
 ```
 
 ## Output schema
@@ -90,7 +156,17 @@ result = pipeline.run(image, recognizer=SequenceRecognizer(known_lines))
 The result serializes to the JSON in §2 of the spec: `page_id`, `document_type`,
 `layout`, `transcript`, `symbols`, `chemistry` (`reagents`, `formulas`,
 `structures`, `concentrations`), `experiment` (`goal`, `conditions`, `procedure`,
-`observations`, `results`), and `confidence` (`overall` + per-field).
+`observations`, `results`), and `confidence` (`overall` + per-field). Drawn
+molecules appear under `chemistry.structures` as SMILES + name with an `uncertain`
+flag.
+
+## Determinism, cost, and latency
+
+- Each page makes **three** model calls (transcription, chemistry, experiment).
+- `temperature=0` + a fixed `seed` give best-effort reproducibility; hosted models
+  are not bit-exact, so determinism is not guaranteed.
+- Image long side is capped (default 1600 px) to bound token cost; tune via
+  `PipelineConfig.imaging.max_long_side`.
 
 ## Evaluation
 
@@ -98,15 +174,9 @@ The result serializes to the JSON in §2 of the spec: `page_id`, `document_type`
 python scripts/evaluate.py path/to/dataset/   # <name>.{png,jpg} + <name>.gt.json
 ```
 
-Implements CER, WER, and reagent/formula/symbol F1 (§5, §13). The metric
-functions are importable and unit-tested.
-
-## Training (optional models)
-
-`scripts/train_layout.py` and `scripts/train_ocr.py` define the training contract
-for the model-backed stages. No weights or datasets are bundled, so they validate
-prerequisites and document the required dataset/interface rather than fabricating
-a run. Trained models load behind the `LayoutDetector` / `Recognizer` protocols.
+Implements CER, WER, and reagent/formula/symbol F1 (§5, §13); the metric functions
+are importable and unit-tested. The dataset driver needs an API key (it runs the
+real pipeline).
 
 ## Testing
 
@@ -114,15 +184,39 @@ a run. Trained models load behind the `LayoutDetector` / `Recognizer` protocols.
 pytest
 ```
 
-Covers preprocessing, layout/reading-order, OCR decode/correct, symbol recovery,
-chemistry parsing/normalization, semantics, validation, and a deterministic
-end-to-end integration run.
+The suite runs **fully offline** via `StubEngine` (no API key or network needed):
+image conditioning, the LLM seam, all three passes (response→canonical mapping and
+SMILES canonicalization), validation, and a deterministic end-to-end run.
+
+## Troubleshooting installation
+
+**`The token '&&' is not a valid statement separator`** — Windows PowerShell 5.1
+doesn't support `&&`. Run each command on its own line.
+
+**`File "setup.py" not found … editable mode currently requires a setup.py based
+build`** — pip older than 21.3. Run
+`python -m pip install --upgrade pip setuptools wheel` first.
+
+**`SSLError(SSLEOFError… EOF occurred in violation of protocol)` /
+`connection broken` / `Could not fetch URL https://pypi.org/...`** — pip can't reach
+PyPI; this is an environment/network issue. Common Windows causes/fixes:
+
+- *Antivirus/firewall HTTPS scanning*: temporarily disable "HTTPS/SSL scanning",
+  install, then re-enable.
+- *Corporate/VPN proxy*: switch networks (e.g. phone hotspot) to confirm, or
+  `pip install -e ".[all]" --proxy http://USER:PASS@HOST:PORT`.
+- *Flaky connection*: `pip install -e ".[all]" --retries 10 --timeout 60`.
+- *Intercepted certificate*: add
+  `--trusted-host pypi.org --trusted-host files.pythonhosted.org`.
+
+**`OPENAI_API_KEY is not set`** — export the key (see step 4) or add it as a Cloud
+Agent secret.
 
 ## Limitations
 
-- The default OCR backend cannot read handwriting; install a real handwriting
-  model (behind `Recognizer`) or Tesseract for printed text. Without one, the
-  transcript is empty and flagged for human review (by design, not invented).
-- Hand-drawn structure recovery emits a partial, explicitly uncertain record
-  (region + rough estimates), not full SMILES, unless a structure model is added.
-- Layout detection is heuristic; a trained detector improves messy pages.
+- Accuracy depends on the chosen model and image quality; very faint or ambiguous
+  handwriting may still be misread (alternatives and confidences are exposed, and
+  low-confidence lines are flagged for review).
+- SMILES for hand-drawn structures are best-effort and flagged `uncertain` when the
+  drawing is ambiguous; enable the `chem` extra for RDKit validation.
+- Hosted-model outputs are not bit-for-bit deterministic.
