@@ -110,6 +110,35 @@ pip install -e '.[all]'       # everything used by the tests
 > The double quotes (`".[all]"`) matter in PowerShell because unquoted square
 > brackets are treated as special characters.
 
+## Troubleshooting installation
+
+**`The token '&&' is not a valid statement separator`** — You're in Windows
+PowerShell 5.1, which doesn't support `&&`. Run each command on its own line (see
+the platform-specific steps above).
+
+**`File "setup.py" not found … editable mode currently requires a setup.py based
+build`** — Your pip is older than 21.3 and predates PEP 660. Upgrade first:
+`python -m pip install --upgrade pip setuptools wheel`.
+
+**`SSLError(SSLEOFError… EOF occurred in violation of protocol)` /
+`connection broken` / `Could not fetch URL https://pypi.org/...`** — pip's HTTPS
+connection to PyPI is being dropped. This is an environment/network issue, not a
+project issue. Common causes and fixes on Windows:
+
+- *Antivirus/firewall HTTPS scanning* (Avast, AVG, Kaspersky, ESET, BitDefender):
+  temporarily disable "HTTPS/SSL scanning" / "web shield", install, then re-enable.
+- *Corporate or VPN proxy*: switch to another network (e.g. a phone hotspot) to
+  confirm, or point pip at the proxy:
+  `pip install -e ".[all]" --proxy http://USER:PASS@HOST:PORT`.
+- *Flaky connection*: add retries/timeout:
+  `pip install -e ".[all]" --retries 10 --timeout 60`.
+- *Intercepted certificate chain*: mark PyPI hosts trusted:
+  `pip install -e ".[all]" --trusted-host pypi.org --trusted-host files.pythonhosted.org`.
+
+First confirm it's general by running
+`python -m pip install --upgrade pip --retries 10 --timeout 60`; if that also
+fails with the same SSL error, fix the network/AV/proxy before retrying.
+
 ## Usage
 
 Command line:
